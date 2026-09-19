@@ -1,59 +1,85 @@
+
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Shared API request wrapper
+async function apiFetch(endpoint, options = {}) {
+  const res = await fetch(`${API}${endpoint}`, options)
+
+  let data = null
+
+  try {
+    data = await res.json()
+  } catch {
+    // Response may not contain valid JSON
+  }
+
+  if (!res.ok) {
+    const message =
+      data?.detail ||
+      data?.message ||
+      `Request failed (${res.status})`
+
+    throw new Error(message)
+  }
+
+  return data
+}
+
+// Check backend health
 export async function checkHealth() {
   try {
-    const res = await fetch(`${API}/`, { signal: AbortSignal.timeout(3000) })
-    if (!res.ok) return false
-    const data = await res.json()
-    return data.status === 'ok'
+    const data = await apiFetch('/', {
+      signal: AbortSignal.timeout(3000)
+    })
+
+    return data?.status === 'ok'
   } catch {
     return false
   }
 }
 
+// Upload a document
 export async function uploadFile(file, onProgress) {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${API}/upload`, { method: 'POST', body: form })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.detail || 'Upload failed')
-  }
-  return res.json()
-}
 
-export async function sendChat(query, history = []) {
-  const res = await fetch(`${API}/chat`, {
+  return apiFetch('/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, history, n_results: 5 })
+    body: form
   })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.detail || 'Chat failed')
-  }
-  return res.json()
 }
 
+// Send chat message
+export async function sendChat(query, history = []) {
+  return apiFetch('/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query,
+      history,
+      n_results: 5
+    })
+  })
+}
+
+// Fetch all documents
 export async function getDocuments() {
-  const res = await fetch(`${API}/documents`)
-  if (!res.ok) throw new Error('Failed to fetch documents')
-  return res.json()
+  return apiFetch('/documents')
 }
 
+// Delete a document
 export async function deleteDocument(filename) {
-  const res = await fetch(`${API}/documents/${encodeURIComponent(filename)}`, {
-    method: 'DELETE'
-  })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.detail || 'Delete failed')
-  }
-  return res.json()
+  return apiFetch(
+    `/documents/${encodeURIComponent(filename)}`,
+    {
+      method: 'DELETE'
+    }
+  )
 }
 
+// Fetch statistics
 export async function getStats() {
-  const res = await fetch(`${API}/stats`)
-  if (!res.ok) throw new Error('Failed to fetch stats')
-  return res.json()
+  return apiFetch('/stats')
 }

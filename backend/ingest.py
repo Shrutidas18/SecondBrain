@@ -19,7 +19,9 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     reader = PdfReader(io.BytesIO(file_bytes))
     text = ""
     for page in reader.pages:
-        text += page.extract_text() + "\n"
+        # extract_text() returns None for image-only/malformed pages instead
+        # of "" — fall back to an empty string so this doesn't crash the upload.
+        text += (page.extract_text() or "") + "\n"
     return text
 
 

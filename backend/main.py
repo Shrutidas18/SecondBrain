@@ -5,6 +5,7 @@ Supports: Ollama (local) and Groq (cloud) via USE_GROQ env var
 """
 
 import os
+import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -101,8 +102,10 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(400, "File too large. Max size: 10MB")
 
     try:
-        chunks = process_file(file.filename, file_bytes)
-        count = add_chunks_to_db(chunks)
+        # Both steps do blocking I/O (parsing + calls to Ollama), so they're
+        # offloaded to a worker thread instead of running on the event loop.
+        chunks = await asyncio.to_thread(process_file, file.filename, file_bytes)
+        count = await asyncio.to_thread(add_chunks_to_db, chunks)
         return {
             "message": f"✅ Successfully processed '{file.filename}'",
             "chunks_added": count,
@@ -126,8 +129,8 @@ async def chat_endpoint(req: ChatRequest):
     if not req.query.strip():
         raise HTTPException(400, "Query cannot be empty")
 
-    # Retrieve relevant chunks
-    chunks = retrieve_relevant_chunks(req.query, n_results=req.n_results)
+    # Retrieve relevant chunks (embedding + vector search — blocking I/O)
+    chunks = await asyncio.to_thread(retrieve_relevant_chunks, req.query, req.n_results)
 
     # Build prompt with context
     messages = build_prompt(req.query, chunks)
@@ -137,9 +140,9 @@ async def chat_endpoint(req: ChatRequest):
         # system + history + current user message
         messages = [messages[0]] + req.history + [messages[-1]]
 
-    # Get LLM response
+    # Get LLM response (blocking network call to Ollama/Groq)
     try:
-        answer = chat(messages)
+        answer = await asyncio.to_thread(chat, messages)
     except Exception as e:
         raise HTTPException(500, f"LLM error: {str(e)}")
 

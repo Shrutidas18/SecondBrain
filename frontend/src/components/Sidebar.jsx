@@ -1,5 +1,6 @@
+
 import { useState, useEffect, useRef } from 'react'
-import { Upload, FileText, Trash2, Brain, ChevronRight, Loader2 } from 'lucide-react'
+import { Upload, FileText, Trash2, Brain, Loader2, AlertCircle } from 'lucide-react'
 import { uploadFile, getDocuments, deleteDocument } from '../hooks/useApi'
 
 const styles = {
@@ -37,15 +38,31 @@ const styles = {
     padding: '8px 10px', borderRadius: '6px',
     cursor: 'default', transition: 'background 0.15s'
   },
-  docName: { fontSize: '12px', color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  docName: {
+    fontSize: '12px', color: 'var(--text)', flex: 1,
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+  },
   deleteBtn: {
     background: 'none', border: 'none', color: 'var(--text-muted)',
-    padding: '2px', display: 'flex', opacity: 0, transition: 'opacity 0.15s',
-    borderRadius: '3px'
+    padding: '2px', display: 'flex', opacity: 0,
+    transition: 'opacity 0.15s', borderRadius: '3px'
   },
   badge: {
     fontSize: '10px', background: 'var(--accent-dim)', color: 'var(--accent)',
     padding: '1px 6px', borderRadius: '10px', whiteSpace: 'nowrap'
+  },
+  error: {
+    margin: '8px',
+    padding: '10px',
+    borderRadius: '6px',
+    background: 'rgba(248, 113, 113, 0.08)',
+    border: '1px solid rgba(248, 113, 113, 0.2)',
+    color: 'var(--red)',
+    fontSize: '11px',
+    lineHeight: '1.4',
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '7px'
   }
 }
 
@@ -54,24 +71,37 @@ export default function Sidebar({ onDocsChange }) {
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [hoveredDoc, setHoveredDoc] = useState(null)
+  const [loadError, setLoadError] = useState(null)
   const fileRef = useRef()
 
   async function loadDocs() {
     try {
+      setLoadError(null)
+
       const data = await getDocuments()
-      setDocs(data.documents)
-      onDocsChange?.(data.documents.length)
-    } catch {}
+      const documents = data.documents || []
+
+      setDocs(documents)
+      onDocsChange?.(documents.length)
+    } catch (e) {
+      setLoadError(e.message || 'Failed to load documents')
+    }
   }
 
-  useEffect(() => { loadDocs() }, [])
+  useEffect(() => {
+    loadDocs()
+  }, [])
 
   async function handleFiles(files) {
     const allowed = ['pdf', 'txt', 'md', 'docx']
+
     for (const file of files) {
       const ext = file.name.toLowerCase().split('.').pop()
+
       if (!allowed.includes(ext)) continue
+
       setUploading(true)
+
       try {
         await uploadFile(file)
         await loadDocs()
@@ -85,16 +115,22 @@ export default function Sidebar({ onDocsChange }) {
 
   async function handleDelete(filename) {
     if (!confirm(`Remove "${filename}" from your knowledge base?`)) return
+
     try {
       await deleteDocument(filename)
       await loadDocs()
-    } catch (e) { alert(e.message) }
+    } catch (e) {
+      alert(e.message)
+    }
   }
 
   return (
     <div style={styles.sidebar}>
       <div style={styles.header}>
-        <div style={styles.logo}><Brain size={20} /></div>
+        <div style={styles.logo}>
+          <Brain size={20} />
+        </div>
+
         <div>
           <div style={styles.title}>Second Brain</div>
           <div style={styles.subtitle}>AI Knowledge Assistant</div>
@@ -109,51 +145,106 @@ export default function Sidebar({ onDocsChange }) {
           background: dragOver ? 'var(--accent-dim)' : 'transparent'
         }}
         onClick={() => fileRef.current.click()}
-        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragOver={e => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
-          e.preventDefault(); setDragOver(false)
+          e.preventDefault()
+          setDragOver(false)
           handleFiles([...e.dataTransfer.files])
         }}
       >
         <input
-          ref={fileRef} type="file" multiple accept=".pdf,.txt,.md,.docx"
+          ref={fileRef}
+          type="file"
+          multiple
+          accept=".pdf,.txt,.md,.docx"
           style={{ display: 'none' }}
-          onChange={e => handleFiles([...e.target.files])}
+          onChange={e => {
+            handleFiles([...e.target.files])
+            e.target.value = ''
+          }}
         />
-        {uploading
-          ? <Loader2 size={18} color="var(--accent)" style={{ animation: 'spin 1s linear infinite' }} />
-          : <Upload size={18} color="var(--text-muted)" />
-        }
+
+        {uploading ? (
+          <Loader2
+            size={18}
+            color="var(--accent)"
+            style={{ animation: 'spin 1s linear infinite' }}
+          />
+        ) : (
+          <Upload size={18} color="var(--text-muted)" />
+        )}
+
         <div style={styles.uploadText}>
           {uploading ? 'Processing...' : 'Drop files or click to upload'}
         </div>
-        <div style={{ ...styles.uploadText, fontSize: '10px' }}>PDF · TXT · MD · DOCX</div>
+
+        <div style={{ ...styles.uploadText, fontSize: '10px' }}>
+          PDF · TXT · MD · DOCX
+        </div>
       </div>
+
+      {/* Document loading error */}
+      {loadError && (
+        <div style={styles.error}>
+          <AlertCircle size={14} style={{ flexShrink: 0 }} />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* Document list */}
       <div style={styles.docsSection}>
         {docs.length > 0 && (
-          <div style={styles.sectionLabel}>Knowledge Base · {docs.length} docs</div>
+          <div style={styles.sectionLabel}>
+            Knowledge Base · {docs.length} docs
+          </div>
         )}
-        {docs.length === 0 && (
-          <div style={{ ...styles.uploadText, padding: '16px 8px', textAlign: 'center' }}>
+
+        {docs.length === 0 && !loadError && (
+          <div
+            style={{
+              ...styles.uploadText,
+              padding: '16px 8px',
+              textAlign: 'center'
+            }}
+          >
             Upload your first document to get started
           </div>
         )}
+
         {docs.map(doc => (
           <div
             key={doc.source}
             style={{
               ...styles.docItem,
-              background: hoveredDoc === doc.source ? 'var(--surface2)' : 'transparent'
+              background:
+                hoveredDoc === doc.source
+                  ? 'var(--surface2)'
+                  : 'transparent'
             }}
             onMouseEnter={() => setHoveredDoc(doc.source)}
             onMouseLeave={() => setHoveredDoc(null)}
           >
-            <FileText size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-            <span style={styles.docName} title={doc.source}>{doc.source}</span>
-            <span style={styles.badge}>{doc.type}</span>
+            <FileText
+              size={13}
+              color="var(--accent)"
+              style={{ flexShrink: 0 }}
+            />
+
+            <span
+              style={styles.docName}
+              title={doc.source}
+            >
+              {doc.source}
+            </span>
+
+            <span style={styles.badge}>
+              {doc.type}
+            </span>
+
             <button
               style={{
                 ...styles.deleteBtn,
@@ -167,8 +258,6 @@ export default function Sidebar({ onDocsChange }) {
           </div>
         ))}
       </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }

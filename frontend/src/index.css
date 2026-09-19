@@ -1,4 +1,9 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 :root {
   --bg: #0f1117;
@@ -23,11 +28,38 @@ body {
   overflow: hidden;
 }
 
-#root { height: 100vh; display: flex; flex-direction: column; }
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar {
+  width: 6px;
+}
 
-button { cursor: pointer; font-family: var(--font); }
-input, textarea { font-family: var(--font); }
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+input,
+textarea {
+  font-family: var(--font);
+}
+
+/* Shared loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

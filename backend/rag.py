@@ -4,6 +4,7 @@ Handles: embedding documents, storing in ChromaDB, retrieving relevant chunks
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 import chromadb
 from chromadb.config import Settings
 import ollama
@@ -14,27 +15,53 @@ load_dotenv()
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 COLLECTION_NAME = "second_brain"
+EMBED_MAX_WORKERS = int(os.getenv("EMBED_MAX_WORKERS", "4"))
+
+# ── Singleton Chroma client/collection ───────────────────────────────────────
+# Opening a PersistentClient re-reads the on-disk store, so we do it once and
+# reuse it across requests instead of reconnecting on every call.
+_client = None
+_collection = None
+
+# Ollama's Python client embeds one prompt per call. A small thread pool lets
+# us fire several embedding calls concurrently instead of one-by-one.
+_embed_pool = ThreadPoolExecutor(max_workers=EMBED_MAX_WORKERS)
 
 
 def get_chroma_client():
-    return chromadb.PersistentClient(
-        path=CHROMA_DB_PATH,
-        settings=Settings(anonymized_telemetry=False)
-    )
+    global _client
+    if _client is None:
+        _client = chromadb.PersistentClient(
+            path=CHROMA_DB_PATH,
+            settings=Settings(anonymized_telemetry=False)
+        )
+    return _client
 
 
 def get_collection():
-    client = get_chroma_client()
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"}
-    )
+    global _collection
+    if _collection is None:
+        client = get_chroma_client()
+        _collection = client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"}
+        )
+    return _collection
 
 
 def embed_text(text: str) -> list[float]:
-    """Generate embeddings using Ollama local model."""
+    """Generate an embedding for a single piece of text using Ollama."""
     response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
     return response["embedding"]
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """
+    Generate embeddings for many texts, in parallel, preserving input order.
+    Used instead of a plain list comprehension so a document with many
+    chunks doesn't wait on N sequential round-trips to Ollama.
+    """
+    return list(_embed_pool.map(embed_text, texts))
 
 
 def add_chunks_to_db(chunks: list[dict]):
@@ -47,7 +74,7 @@ def add_chunks_to_db(chunks: list[dict]):
     ids = [c["id"] for c in chunks]
     texts = [c["text"] for c in chunks]
     metadatas = [c["metadata"] for c in chunks]
-    embeddings = [embed_text(t) for t in texts]
+    embeddings = embed_texts(texts)
 
     collection.upsert(
         ids=ids,
