@@ -1,6 +1,10 @@
 """
 rag.py — Retrieval Augmented Generation pipeline
 Handles: embedding documents, storing in ChromaDB, retrieving relevant chunks
+
+Embeddings:
+  - USE_GROQ=true  (online / Render): fastembed, runs inside this process
+  - USE_GROQ=false (local):           Ollama (nomic-embed-text)
 """
 
 import os
@@ -14,8 +18,10 @@ load_dotenv()
 
 CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+FASTEMBED_MODEL = os.getenv("FASTEMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 COLLECTION_NAME = "second_brain"
 EMBED_MAX_WORKERS = int(os.getenv("EMBED_MAX_WORKERS", "4"))
+USE_GROQ = os.getenv("USE_GROQ", "false").lower() == "true"
 
 # ── Singleton Chroma client/collection ───────────────────────────────────────
 # Opening a PersistentClient re-reads the on-disk store, so we do it once and
@@ -26,6 +32,9 @@ _collection = None
 # Ollama's Python client embeds one prompt per call. A small thread pool lets
 # us fire several embedding calls concurrently instead of one-by-one.
 _embed_pool = ThreadPoolExecutor(max_workers=EMBED_MAX_WORKERS)
+
+# fastembed model is loaded lazily on first use (keeps startup fast and light).
+_fastembed = None
 
 
 def get_chroma_client():
@@ -49,18 +58,33 @@ def get_collection():
     return _collection
 
 
+def _get_fastembed():
+    """Load the fastembed model once, on first use."""
+    global _fastembed
+    if _fastembed is None:
+        from fastembed import TextEmbedding
+        _fastembed = TextEmbedding(FASTEMBED_MODEL)
+    return _fastembed
+
+
 def embed_text(text: str) -> list[float]:
-    """Generate an embedding for a single piece of text using Ollama."""
+    """Generate an embedding for a single piece of text.
+    Uses fastembed when USE_GROQ=true (online), Ollama otherwise (local)."""
+    if USE_GROQ:
+        return next(iter(_get_fastembed().embed([text]))).tolist()
     response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
     return response["embedding"]
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """
-    Generate embeddings for many texts, in parallel, preserving input order.
-    Used instead of a plain list comprehension so a document with many
-    chunks doesn't wait on N sequential round-trips to Ollama.
+    Generate embeddings for many texts, preserving input order.
+    Online (fastembed): one batched call.
+    Local (Ollama): parallel calls, so a document with many chunks doesn't
+    wait on N sequential round-trips.
     """
+    if USE_GROQ:
+        return [v.tolist() for v in _get_fastembed().embed(texts)]
     return list(_embed_pool.map(embed_text, texts))
 
 
